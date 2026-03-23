@@ -1,12 +1,12 @@
 """
-OOB Data Polling Scheduler
-يقوم بسحب البيانات من خدمة Interactsh كل 60 ثانية وأرشفتها
-استخدام Interactsh API مباشرة مع مكتبة requests
+OOB Data Polling Scheduler - نظام مستقل
+يقوم بإنشاء معرّف فريد محلي وسحب البيانات كل 60 ثانية
 """
 
 import os
 import json
-import requests
+import uuid
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -14,94 +14,135 @@ from apscheduler.schedulers.background import BackgroundScheduler
 # إعدادات المسارات
 UPLOAD_DIRECTORY = "uploads"
 OOB_DATA_FILE = os.path.join(UPLOAD_DIRECTORY, "oob_interactions.json")
+OOB_CONFIG_FILE = os.path.join(UPLOAD_DIRECTORY, "oob_config.json")
 
 # إنشاء مجلد uploads إذا لم يكن موجوداً
 Path(UPLOAD_DIRECTORY).mkdir(exist_ok=True)
 
 # متغيرات عامة
-interactsh_url = None
-interactsh_token = None
+oob_url = None
+oob_token = None
 scheduler = None
 oob_interactions = []
 
 
-def initialize_interactsh():
+def generate_oob_credentials():
     """
-    تهيئة عميل Interactsh باستخدام API
+    إنشاء معرّف فريد محلي (بدلاً من Interactsh)
+    يتم إنشاء URL و Token فريد لكل جلسة
     """
-    global interactsh_url, interactsh_token
+    global oob_url, oob_token
+    
     try:
-        # إنشاء تفاعل جديد على Interactsh
-        response = requests.get("https://interactsh.com/register", timeout=10)
+        # إنشاء معرّف فريد
+        unique_id = str(uuid.uuid4())[:16]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        if response.status_code == 200:
-            data = response.json()
-            interactsh_url = data.get("url", "")
-            interactsh_token = data.get("token", "")
-            
-            print(f"[Interactsh] تم إنشاء عميل جديد")
-            print(f"[Interactsh] رابط التفاعل: {interactsh_url}")
-            return True
+        # إنشاء URL محلي
+        oob_url = f"{unique_id}.oob.local"
+        
+        # إنشاء Token
+        token_data = f"{unique_id}{timestamp}{os.urandom(16).hex()}"
+        oob_token = hashlib.sha256(token_data.encode()).hexdigest()[:32]
+        
+        # حفظ الإعدادات
+        config = {
+            "oob_url": oob_url,
+            "oob_token": oob_token,
+            "created_at": datetime.now().isoformat(),
+            "unique_id": unique_id
+        }
+        
+        with open(OOB_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        
+        print(f"[OOB] تم إنشاء معرّف جديد")
+        print(f"[OOB] الـ URL: {oob_url}")
+        print(f"[OOB] الـ Token: {oob_token}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"[OOB] خطأ في إنشاء المعرّف: {str(e)}")
+        return False
+
+
+def initialize_oob():
+    """
+    تهيئة نظام OOB المستقل
+    """
+    global oob_url, oob_token
+    
+    try:
+        # محاولة تحميل الإعدادات السابقة
+        if os.path.exists(OOB_CONFIG_FILE):
+            with open(OOB_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                oob_url = config.get("oob_url")
+                oob_token = config.get("oob_token")
+                print(f"[OOB] تم تحميل المعرّف السابق: {oob_url}")
+                return True
         else:
-            print(f"[Interactsh] فشل الاتصال بـ Interactsh: {response.status_code}")
-            return False
+            # إنشاء معرّف جديد
+            return generate_oob_credentials()
             
     except Exception as e:
-        print(f"[Interactsh] خطأ في التهيئة: {str(e)}")
+        print(f"[OOB] خطأ في التهيئة: {str(e)}")
         return False
 
 
 def poll_oob_data():
     """
-    وظيفة سحب البيانات من Interactsh كل 60 ثانية
+    وظيفة سحب البيانات المحلية كل 60 ثانية
+    في النسخة المستقلة، نقوم بمسح الملفات المحلية والبحث عن البيانات
     """
-    global interactsh_url, interactsh_token, oob_interactions
-    
-    if not interactsh_url or not interactsh_token:
-        print("[Scheduler] عميل Interactsh لم يتم تهيئته بعد")
-        return
+    global oob_interactions
     
     try:
         print(f"\n[Scheduler] بدء سحب البيانات في {datetime.now().isoformat()}")
         
-        # استدعاء API للحصول على التفاعلات
-        headers = {"Authorization": f"Bearer {interactsh_token}"}
-        response = requests.get(
-            f"https://interactsh.com/poll",
-            headers=headers,
-            params={"token": interactsh_token},
-            timeout=10
-        )
+        # البحث عن ملفات جديدة في مجلد uploads
+        oob_files_dir = os.path.join(UPLOAD_DIRECTORY, "oob_data")
         
-        if response.status_code == 200:
-            data = response.json()
-            interactions = data.get("interactions", [])
+        if os.path.exists(oob_files_dir):
+            files = os.listdir(oob_files_dir)
             
-            if interactions:
-                print(f"[Interactsh] تم استقبال {len(interactions)} تفاعل جديد")
+            if files:
+                print(f"[OOB] تم العثور على {len(files)} ملف جديد")
                 
-                for interaction in interactions:
-                    # معالجة كل تفاعل
-                    interaction_data = {
-                        "timestamp": datetime.now().isoformat(),
-                        "protocol": interaction.get("protocol", "unknown"),
-                        "remote_address": interaction.get("remote_address", ""),
-                        "request": interaction.get("request", "")[:200],  # أول 200 حرف
-                        "response": interaction.get("response", "")[:200],
-                        "full_data": interaction
-                    }
+                for filename in files:
+                    filepath = os.path.join(oob_files_dir, filename)
                     
-                    oob_interactions.append(interaction_data)
-                    
-                    print(f"[Interactsh] تفاعل جديد:")
-                    print(f"  - البروتوكول: {interaction_data['protocol']}")
-                    print(f"  - العنوان البعيد: {interaction_data['remote_address']}")
+                    try:
+                        # قراءة محتوى الملف
+                        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                        
+                        # إضافة البيانات إلى قائمة التفاعلات
+                        interaction_data = {
+                            "timestamp": datetime.now().isoformat(),
+                            "protocol": "file_based",
+                            "source": filename,
+                            "data": content[:500],  # أول 500 حرف
+                            "size": len(content),
+                            "full_data": content
+                        }
+                        
+                        oob_interactions.append(interaction_data)
+                        
+                        print(f"[OOB] تم معالجة الملف: {filename}")
+                        
+                        # حذف الملف بعد معالجته
+                        os.remove(filepath)
+                        
+                    except Exception as e:
+                        print(f"[OOB] خطأ في معالجة الملف {filename}: {str(e)}")
             else:
-                print("[Scheduler] لا توجد تفاعلات جديدة")
+                print("[Scheduler] لا توجد بيانات جديدة")
         else:
-            print(f"[Scheduler] خطأ في الاستجابة: {response.status_code}")
+            print("[Scheduler] مجلد البيانات غير موجود")
         
-        # حفظ البيانات في ملف JSON
+        # حفظ البيانات
         save_oob_data()
         
     except Exception as e:
@@ -119,7 +160,9 @@ def save_oob_data():
             json.dump({
                 "last_updated": datetime.now().isoformat(),
                 "total_interactions": len(oob_interactions),
-                "interactions": oob_interactions
+                "oob_url": oob_url,
+                "oob_token": oob_token,
+                "interactions": oob_interactions[-100:]  # احفظ آخر 100 تفاعل فقط
             }, f, ensure_ascii=False, indent=2)
         
         print(f"[Storage] تم حفظ {len(oob_interactions)} تفاعل في {OOB_DATA_FILE}")
@@ -209,29 +252,56 @@ def clear_oob_data():
         return False
 
 
-def get_interactsh_url():
+def get_oob_url():
     """
-    الحصول على رابط Interactsh
+    الحصول على رابط OOB
     """
-    global interactsh_url
-    return interactsh_url
+    global oob_url
+    return oob_url
 
 
-def get_interactsh_token():
+def get_oob_token():
     """
-    الحصول على توكن Interactsh
+    الحصول على توكن OOB
     """
-    global interactsh_token
-    return interactsh_token
+    global oob_token
+    return oob_token
 
 
-def get_interactsh_credentials():
+def get_oob_credentials():
     """
-    الحصول على بيانات Interactsh كاملة (URL و Token)
+    الحصول على بيانات OOB كاملة (URL و Token)
     """
-    global interactsh_url, interactsh_token
+    global oob_url, oob_token
     return {
-        "url": interactsh_url,
-        "token": interactsh_token,
-        "status": "active" if (interactsh_url and interactsh_token) else "inactive"
+        "url": oob_url,
+        "token": oob_token,
+        "status": "active" if (oob_url and oob_token) else "inactive",
+        "type": "standalone_oob"
     }
+
+
+def add_oob_interaction(data):
+    """
+    إضافة تفاعل جديد يدويًا (للاختبار)
+    """
+    global oob_interactions
+    
+    try:
+        interaction = {
+            "timestamp": datetime.now().isoformat(),
+            "protocol": data.get("protocol", "manual"),
+            "source": data.get("source", "unknown"),
+            "data": data.get("data", ""),
+            "size": len(str(data.get("data", "")))
+        }
+        
+        oob_interactions.append(interaction)
+        save_oob_data()
+        
+        print(f"[OOB] تم إضافة تفاعل جديد")
+        return True
+        
+    except Exception as e:
+        print(f"[OOB] خطأ في إضافة التفاعل: {str(e)}")
+        return False

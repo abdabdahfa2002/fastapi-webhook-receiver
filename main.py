@@ -8,15 +8,17 @@ import uvicorn
 
 # استيراد وحدة OOB Scheduler
 from oob_scheduler import (
-    initialize_interactsh,
+    initialize_oob,
     start_scheduler,
     stop_scheduler,
     get_oob_interactions,
     clear_oob_data,
     poll_oob_data,
-    get_interactsh_url,
-    get_interactsh_token,
-    get_interactsh_credentials
+    get_oob_url,
+    get_oob_token,
+    get_oob_credentials,
+    add_oob_interaction,
+    load_oob_data
 )
 
 app = FastAPI(title="Webhook & OOB Receiver API")
@@ -35,7 +37,7 @@ async def startup_event():
     
     # تهيئة عميل Interactsh
     print("[App] تهيئة عميل Interactsh...")
-    if initialize_interactsh():
+    if initialize_oob():
         print("[App] تم تهيئة Interactsh بنجاح")
         
         # بدء جدولة المهام
