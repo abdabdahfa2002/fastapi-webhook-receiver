@@ -215,3 +215,23 @@ def get_interactsh_url():
     """
     global interactsh_url
     return interactsh_url
+
+
+def get_interactsh_token():
+    """
+    الحصول على توكن Interactsh
+    """
+    global interactsh_token
+    return interactsh_token
+
+
+def get_interactsh_credentials():
+    """
+    الحصول على بيانات Interactsh كاملة (URL و Token)
+    """
+    global interactsh_url, interactsh_token
+    return {
+        "url": interactsh_url,
+        "token": interactsh_token,
+        "status": "active" if (interactsh_url and interactsh_token) else "inactive"
+    }

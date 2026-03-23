@@ -13,7 +13,10 @@ from oob_scheduler import (
     stop_scheduler,
     get_oob_interactions,
     clear_oob_data,
-    poll_oob_data
+    poll_oob_data,
+    get_interactsh_url,
+    get_interactsh_token,
+    get_interactsh_credentials
 )
 
 app = FastAPI(title="Webhook & OOB Receiver API")
@@ -179,6 +182,29 @@ async def clear_interactions():
             "status": "error",
             "message": str(e)
         })
+
+
+@app.get("/oob/credentials", summary="Get Interactsh Credentials")
+async def get_credentials():
+    """
+    الحصول على معرّف Interactsh الفريد (URL و Token)
+    هذا هو الـ ID الخاص بك للإرسال عبر DNS وبروتوكولات OOB الأخرى
+    """
+    credentials = get_interactsh_credentials()
+    return JSONResponse(status_code=200, content={
+        "status": "success",
+        "interactsh_url": credentials["url"],
+        "interactsh_token": credentials["token"],
+        "service_status": credentials["status"],
+        "timestamp": datetime.now().isoformat(),
+        "usage": {
+            "dns": f"Send DNS queries to: {credentials['url']}",
+            "http": f"Send HTTP requests to: http://{credentials['url']}",
+            "https": f"Send HTTPS requests to: https://{credentials['url']}",
+            "smtp": f"Send SMTP requests to: {credentials['url']}",
+            "ldap": f"Send LDAP requests to: {credentials['url']}"
+        }
+    })
 
 @app.get("/api/info", summary="API Information")
 async def api_info():
