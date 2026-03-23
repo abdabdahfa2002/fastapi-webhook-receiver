@@ -35,17 +35,21 @@ async def startup_event():
     if not os.path.exists(UPLOAD_DIRECTORY):
         os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
     
-    # تهيئة عميل Interactsh
-    print("[App] تهيئة عميل Interactsh...")
+    # تحميل البيانات السابقة
+    print("[App] تحميل البيانات السابقة...")
+    load_oob_data()
+    
+    # تهيئة نظام OOB
+    print("[App] تهيئة نظام OOB...")
     if initialize_oob():
-        print("[App] تم تهيئة Interactsh بنجاح")
+        print("[App] تم تهيئة OOB بنجاح")
         
         # بدء جدولة المهام
         print("[App] بدء جدولة سحب البيانات...")
         start_scheduler()
         print("[App] تم بدء جدولة المهام")
     else:
-        print("[App] فشل تهيئة Interactsh - سيتم المتابعة بدونه")
+        print("[App] فشل تهيئة OOB - سيتم المتابعة بدونه")
 
 @app.on_event("shutdown")
 async def shutdown_event():
