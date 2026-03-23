@@ -1,14 +1,15 @@
 """
 OOB Data Polling Scheduler
 يقوم بسحب البيانات من خدمة Interactsh كل 60 ثانية وأرشفتها
+استخدام Interactsh API مباشرة مع مكتبة requests
 """
 
 import os
 import json
+import requests
 from datetime import datetime
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
-from interactsh import Client
 
 # إعدادات المسارات
 UPLOAD_DIRECTORY = "uploads"
@@ -17,22 +18,34 @@ OOB_DATA_FILE = os.path.join(UPLOAD_DIRECTORY, "oob_interactions.json")
 # إنشاء مجلد uploads إذا لم يكن موجوداً
 Path(UPLOAD_DIRECTORY).mkdir(exist_ok=True)
 
-# متغير عام لتخزين بيانات Interactsh
-interactsh_client = None
+# متغيرات عامة
+interactsh_url = None
+interactsh_token = None
 scheduler = None
 oob_interactions = []
 
 
 def initialize_interactsh():
     """
-    تهيئة عميل Interactsh
+    تهيئة عميل Interactsh باستخدام API
     """
-    global interactsh_client
+    global interactsh_url, interactsh_token
     try:
-        interactsh_client = Client()
-        print(f"[Interactsh] تم إنشاء عميل جديد: {interactsh_client.server}")
-        print(f"[Interactsh] رابط التفاعل: {interactsh_client.url}")
-        return True
+        # إنشاء تفاعل جديد على Interactsh
+        response = requests.get("https://interactsh.com/register", timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            interactsh_url = data.get("url", "")
+            interactsh_token = data.get("token", "")
+            
+            print(f"[Interactsh] تم إنشاء عميل جديد")
+            print(f"[Interactsh] رابط التفاعل: {interactsh_url}")
+            return True
+        else:
+            print(f"[Interactsh] فشل الاتصال بـ Interactsh: {response.status_code}")
+            return False
+            
     except Exception as e:
         print(f"[Interactsh] خطأ في التهيئة: {str(e)}")
         return False
@@ -42,40 +55,51 @@ def poll_oob_data():
     """
     وظيفة سحب البيانات من Interactsh كل 60 ثانية
     """
-    global interactsh_client, oob_interactions
+    global interactsh_url, interactsh_token, oob_interactions
     
-    if interactsh_client is None:
+    if not interactsh_url or not interactsh_token:
         print("[Scheduler] عميل Interactsh لم يتم تهيئته بعد")
         return
     
     try:
         print(f"\n[Scheduler] بدء سحب البيانات في {datetime.now().isoformat()}")
         
-        # الحصول على التفاعلات من Interactsh
-        interactions = interactsh_client.poll()
+        # استدعاء API للحصول على التفاعلات
+        headers = {"Authorization": f"Bearer {interactsh_token}"}
+        response = requests.get(
+            f"https://interactsh.com/poll",
+            headers=headers,
+            params={"token": interactsh_token},
+            timeout=10
+        )
         
-        if interactions:
-            print(f"[Interactsh] تم استقبال {len(interactions)} تفاعل جديد")
+        if response.status_code == 200:
+            data = response.json()
+            interactions = data.get("interactions", [])
             
-            for interaction in interactions:
-                # معالجة كل تفاعل
-                interaction_data = {
-                    "timestamp": datetime.now().isoformat(),
-                    "protocol": interaction.get("protocol", "unknown"),
-                    "remote_address": interaction.get("remote_address", ""),
-                    "request": interaction.get("request", ""),
-                    "response": interaction.get("response", ""),
-                    "full_data": interaction
-                }
+            if interactions:
+                print(f"[Interactsh] تم استقبال {len(interactions)} تفاعل جديد")
                 
-                oob_interactions.append(interaction_data)
-                
-                print(f"[Interactsh] تفاعل جديد:")
-                print(f"  - البروتوكول: {interaction_data['protocol']}")
-                print(f"  - العنوان البعيد: {interaction_data['remote_address']}")
-                print(f"  - الطلب: {interaction_data['request'][:100]}...")
+                for interaction in interactions:
+                    # معالجة كل تفاعل
+                    interaction_data = {
+                        "timestamp": datetime.now().isoformat(),
+                        "protocol": interaction.get("protocol", "unknown"),
+                        "remote_address": interaction.get("remote_address", ""),
+                        "request": interaction.get("request", "")[:200],  # أول 200 حرف
+                        "response": interaction.get("response", "")[:200],
+                        "full_data": interaction
+                    }
+                    
+                    oob_interactions.append(interaction_data)
+                    
+                    print(f"[Interactsh] تفاعل جديد:")
+                    print(f"  - البروتوكول: {interaction_data['protocol']}")
+                    print(f"  - العنوان البعيد: {interaction_data['remote_address']}")
+            else:
+                print("[Scheduler] لا توجد تفاعلات جديدة")
         else:
-            print("[Scheduler] لا توجد تفاعلات جديدة")
+            print(f"[Scheduler] خطأ في الاستجابة: {response.status_code}")
         
         # حفظ البيانات في ملف JSON
         save_oob_data()
@@ -183,3 +207,11 @@ def clear_oob_data():
     except Exception as e:
         print(f"[Storage] خطأ في مسح البيانات: {str(e)}")
         return False
+
+
+def get_interactsh_url():
+    """
+    الحصول على رابط Interactsh
+    """
+    global interactsh_url
+    return interactsh_url
