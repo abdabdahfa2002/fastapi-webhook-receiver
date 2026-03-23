@@ -190,13 +190,13 @@ async def clear_interactions():
         })
 
 
-@app.get("/oob/credentials", summary="Get Interactsh Credentials")
+@app.get("/oob/credentials", summary="Get OOB Credentials")
 async def get_credentials():
     """
-    الحصول على معرّف Interactsh الفريد (URL و Token)
-    هذا هو الـ ID الخاص بك للإرسال عبر DNS وبروتوكولات OOB الأخرى
+    الحصول على معرّف OOB الفريد (URL و Token)
+    هذا هو الـ ID الخاص بك للإرسال والاستقبال عبر OOB
     """
-    credentials = get_interactsh_credentials()
+    credentials = get_oob_credentials()
     return JSONResponse(status_code=200, content={
         "status": "success",
         "interactsh_url": credentials["url"],
